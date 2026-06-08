@@ -22,6 +22,10 @@ export default [
     route("instructor/new", "routes/instructor.new.tsx"),
     route("instructor/:courseId", "routes/instructor.$courseId.tsx"),
     route(
+      "instructor/:courseId/analytics",
+      "routes/instructor.$courseId.analytics.tsx"
+    ),
+    route(
       "instructor/:courseId/lessons/:lessonId",
       "routes/instructor.$courseId.lessons.$lessonId.tsx"
     ),
@@ -50,4 +54,6 @@ export default [
   route("api/logout", "routes/api.logout.ts"),
   route("api/video-tracking", "routes/api.video-tracking.ts"),
   route("api/set-dev-country", "routes/api.set-dev-country.ts"),
+  route("api/notifications/mark-read", "routes/api.notifications.mark-read.ts"),
+  route("api/notifications/mark-all-read", "routes/api.notifications.mark-all-read.ts"),
 ] satisfies RouteConfig;

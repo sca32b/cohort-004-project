@@ -22,6 +22,20 @@
       "when": 1770650640202,
       "tag": "0002_lying_shriek",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1780504624426,
+      "tag": "0003_chubby_iron_fist",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1780945821182,
+      "tag": "0004_thick_rhino",
+      "breakpoints": true
     }
   ]
 }
