@@ -2,6 +2,8 @@ import { eq, and, avg, count, sql } from "drizzle-orm";
 import { db } from "~/db";
 import { courseRatings } from "~/db/schema";
 
+const x: number = "hello";
+
 export function getUserRating(userId: number, courseId: number) {
   return db
     .select()

@@ -18,6 +18,7 @@ import {
   getCouponsForTeam,
   redeemCoupon,
 } from "./couponService";
+import { getNotifications } from "./notificationService";
 
 // Helper: create a team with admin and a purchase for coupon generation
 function setupTeamAndPurchase(country: string | null = "US") {
@@ -273,6 +274,76 @@ describe("couponService", () => {
       const result = redeemCoupon(coupon.code, redeemer.id, "PL");
 
       expect(result.ok).toBe(true);
+    });
+
+    it("does not create a notification on failed redemption", () => {
+      const { team, purchase } = setupTeamAndPurchase();
+      const [coupon] = generateCoupons(team.id, base.course.id, purchase.id, 1);
+      const redeemer = createRedeemer();
+
+      // Enroll first so redemption fails
+      testDb
+        .insert(schema.enrollments)
+        .values({ userId: redeemer.id, courseId: base.course.id })
+        .run();
+
+      redeemCoupon(coupon.code, redeemer.id, "US");
+
+      const notifications = getNotifications(base.user.id, 10, 0);
+      expect(notifications).toHaveLength(0);
+    });
+
+    it("creates a notification for the team admin on successful redemption", () => {
+      const { team, purchase } = setupTeamAndPurchase();
+      const [coupon] = generateCoupons(team.id, base.course.id, purchase.id, 3);
+      const redeemer = createRedeemer();
+
+      redeemCoupon(coupon.code, redeemer.id, "US");
+
+      const notifications = getNotifications(base.user.id, 10, 0);
+      expect(notifications).toHaveLength(1);
+      expect(notifications[0].type).toBe("coupon_redemption");
+      expect(notifications[0].title).toBe("Seat Claimed");
+      expect(notifications[0].message).toContain("Redeemer");
+      expect(notifications[0].message).toContain("Test Course");
+      expect(notifications[0].message).toContain("2 of 3 seats remaining");
+      expect(notifications[0].linkUrl).toBe("/team");
+    });
+
+    it("creates a notification for each team admin", () => {
+      const { team, purchase } = setupTeamAndPurchase();
+
+      // Add a second admin to the team
+      const admin2 = testDb
+        .insert(schema.users)
+        .values({
+          name: "Second Admin",
+          email: "admin2@example.com",
+          role: schema.UserRole.Student,
+        })
+        .returning()
+        .get();
+
+      testDb
+        .insert(schema.teamMembers)
+        .values({
+          teamId: team.id,
+          userId: admin2.id,
+          role: schema.TeamMemberRole.Admin,
+        })
+        .run();
+
+      const [coupon] = generateCoupons(team.id, base.course.id, purchase.id, 1);
+      const redeemer = createRedeemer();
+
+      redeemCoupon(coupon.code, redeemer.id, "US");
+
+      const admin1Notifs = getNotifications(base.user.id, 10, 0);
+      const admin2Notifs = getNotifications(admin2.id, 10, 0);
+
+      expect(admin1Notifs).toHaveLength(1);
+      expect(admin2Notifs).toHaveLength(1);
+      expect(admin1Notifs[0].message).toBe(admin2Notifs[0].message);
     });
   });
 });
