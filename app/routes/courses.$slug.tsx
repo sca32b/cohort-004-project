@@ -42,6 +42,12 @@ import { formatDuration, formatPrice } from "~/lib/utils";
 import { renderMarkdown } from "~/lib/markdown.server";
 import { resolveCountry } from "~/lib/country.server";
 import { calculatePppPrice, getCountryTierInfo } from "~/lib/ppp";
+import {
+  getCourseRatingStats,
+  getUserRating,
+  upsertRating,
+} from "~/services/ratingService";
+import { StarRatingDisplay, StarRatingInput } from "~/components/star-rating";
 
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const title = loaderData?.course?.title ?? "Course";
@@ -102,6 +108,11 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     : courseWithDetails.price;
   const tierInfo = getCountryTierInfo(country);
 
+  const ratingStats = getCourseRatingStats(course.id);
+  const userRating = currentUserId
+    ? getUserRating(currentUserId, course.id)
+    : null;
+
   return {
     course: courseWithDetails,
     salesCopyHtml,
@@ -113,10 +124,36 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     currentUserId,
     pppPrice,
     tierInfo,
+    ratingStats,
+    userRating: userRating?.rating ?? null,
   };
 }
 
-// No action — enrollment is handled via the purchase confirmation page
+export async function action({ params, request }: Route.ActionArgs) {
+  const currentUserId = await getCurrentUserId(request);
+  if (!currentUserId) {
+    throw data("Must be logged in to rate", { status: 401 });
+  }
+
+  const course = getCourseBySlug(params.slug);
+  if (!course) {
+    throw data("Course not found", { status: 404 });
+  }
+
+  const enrolled = isUserEnrolled(currentUserId, course.id);
+  if (!enrolled) {
+    throw data("Must be enrolled to rate", { status: 403 });
+  }
+
+  const formData = await request.formData();
+  const rating = Number(formData.get("rating"));
+  if (!rating || rating < 1 || rating > 5 || !Number.isInteger(rating)) {
+    throw data("Rating must be an integer from 1 to 5", { status: 400 });
+  }
+
+  upsertRating(currentUserId, course.id, rating);
+  return { ok: true };
+}
 
 export function HydrateFallback() {
   return (
@@ -181,6 +218,8 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
     currentUserId,
     pppPrice,
     tierInfo,
+    ratingStats,
+    userRating,
   } = loaderData;
   const isInstructor = currentUserId === course.instructorId;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -320,7 +359,19 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
               {formatDuration(totalDuration, true, false, false)} total
             </span>
           )}
+          <StarRatingDisplay
+            average={ratingStats.average}
+            count={ratingStats.count}
+          />
         </div>
+        {enrolled && (
+          <div className="mt-3">
+            <StarRatingInput
+              courseSlug={course.slug}
+              currentRating={userRating}
+            />
+          </div>
+        )}
       </div>
 
       {/* Two-column: sales copy left, sidebar right */}
