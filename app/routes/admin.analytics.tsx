@@ -5,12 +5,29 @@ import { getUserById } from "~/services/userService";
 import { UserRole } from "~/db/schema";
 import {
   getPlatformRevenueStats,
+  getPlatformRevenueTimeSeries,
+  getCourseBreakdown,
+  getInstructorsWithCourses,
   type AdminPeriod,
 } from "~/services/adminAnalyticsService";
 import { formatPrice } from "~/lib/utils";
-import { Card, CardContent } from "~/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
-import { AlertTriangle, DollarSign, Users, Trophy } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "~/components/ui/chart";
+import { Line, LineChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { AlertTriangle, DollarSign, Users, Trophy, Star } from "lucide-react";
 import { data, isRouteErrorResponse } from "react-router";
 
 const PERIODS: { value: AdminPeriod; label: string }[] = [
@@ -56,19 +73,45 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const periodParam = url.searchParams.get("period");
   const period: AdminPeriod = isValidPeriod(periodParam) ? periodParam : "30d";
+  const instructorParam = url.searchParams.get("instructor");
+  const instructorId = instructorParam ? parseInt(instructorParam, 10) : undefined;
 
   const stats = getPlatformRevenueStats(period);
+  const timeSeries = getPlatformRevenueTimeSeries(period);
+  const courseBreakdown = getCourseBreakdown(
+    period,
+    instructorId && !isNaN(instructorId) ? instructorId : undefined
+  );
+  const instructors = getInstructorsWithCourses();
 
-  return { stats, period };
+  return { stats, period, timeSeries, courseBreakdown, instructors, instructorId };
 }
 
+const revenueChartConfig = {
+  revenue: {
+    label: "Revenue",
+    color: "hsl(142.1 76.2% 36.3%)",
+  },
+} satisfies ChartConfig;
+
 export default function AdminAnalytics({ loaderData }: Route.ComponentProps) {
-  const { stats, period } = loaderData;
+  const { stats, period, timeSeries, courseBreakdown, instructors, instructorId } =
+    loaderData;
   const [searchParams] = useSearchParams();
 
   function periodLink(p: AdminPeriod) {
     const params = new URLSearchParams(searchParams);
     params.set("period", p);
+    return `?${params.toString()}`;
+  }
+
+  function instructorFilterLink(id: string) {
+    const params = new URLSearchParams(searchParams);
+    if (id === "all") {
+      params.delete("instructor");
+    } else {
+      params.set("instructor", id);
+    }
     return `?${params.toString()}`;
   }
 
@@ -106,6 +149,7 @@ export default function AdminAnalytics({ loaderData }: Route.ComponentProps) {
           </CardContent>
         </Card>
       ) : (
+        <>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Card>
             <CardContent className="pt-6">
@@ -166,6 +210,173 @@ export default function AdminAnalytics({ loaderData }: Route.ComponentProps) {
             </CardContent>
           </Card>
         </div>
+
+        {/* Revenue over time chart */}
+        <Card className="mt-8">
+          <CardHeader>
+            <CardTitle>Revenue Over Time</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {timeSeries.length > 0 ? (
+              <ChartContainer
+                config={revenueChartConfig}
+                className="h-[300px] w-full"
+              >
+                <LineChart data={timeSeries} accessibilityLayer>
+                  <CartesianGrid vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    tickFormatter={(value: string) => {
+                      if (value.length === 7) {
+                        return new Date(value + "-01").toLocaleDateString(
+                          "en-US",
+                          { month: "short", year: "2-digit" }
+                        );
+                      }
+                      return new Date(value).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      });
+                    }}
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    tickFormatter={(value: number) =>
+                      `$${(value / 100).toFixed(0)}`
+                    }
+                  />
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        formatter={(value) =>
+                          `$${(Number(value) / 100).toFixed(2)}`
+                        }
+                      />
+                    }
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke="var(--color-revenue)"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                </LineChart>
+              </ChartContainer>
+            ) : (
+              <p className="py-8 text-center text-muted-foreground">
+                No revenue data for this period.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Course breakdown table */}
+        <Card className="mt-8">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Course Breakdown</CardTitle>
+              <Select
+                value={instructorId ? String(instructorId) : "all"}
+                onValueChange={(value) => {
+                  window.location.href = instructorFilterLink(value);
+                }}
+              >
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="All Instructors" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Instructors</SelectItem>
+                  {instructors.map((inst) => (
+                    <SelectItem key={inst.id} value={String(inst.id)}>
+                      {inst.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {courseBreakdown.length === 0 ? (
+              <p className="px-6 py-8 text-center text-muted-foreground">
+                No courses found for the selected filter.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/50">
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Course
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Instructor
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        List Price
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Revenue
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Sales
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Enrollments
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Rating
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {courseBreakdown.map((row) => (
+                      <tr
+                        key={row.courseId}
+                        className="border-b border-border last:border-0"
+                      >
+                        <td className="px-4 py-3 text-sm font-medium">
+                          {row.title}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">
+                          {row.instructorName}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm">
+                          {formatPrice(row.listPrice)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-medium">
+                          {formatPrice(row.revenue)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm text-muted-foreground">
+                          {row.sales}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm text-muted-foreground">
+                          {row.enrollments}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm">
+                          {row.averageRating !== null ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Star className="size-3.5 fill-amber-400 text-amber-400" />
+                              {row.averageRating.toFixed(1)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        </>
       )}
     </div>
   );
