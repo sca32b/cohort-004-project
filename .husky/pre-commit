@@ -1,3 +1,2 @@
-node --input-type=module -e "import '/home/agent/deps/node_modules/.pnpm/lint-staged@17.0.7/node_modules/lint-staged/bin/lint-staged.js'"
-pnpm typecheck
-pnpm test
+#!/bin/sh
+pnpm exec lint-staged
